@@ -77,8 +77,29 @@ const generateBotResponse = async (incomingMessageDiv) => {
     const data = await fetchWithRetries(3, 2000); // 3 retries, 2 seconds delay
 
     // Extract and display bot's response text
-    const apiResponseText = data.candidates[0].content.parts[0].text.replace(/\*\*(.*?)\*\*/g, "$1").trim();
-    messageElement.innerText = apiResponseText;
+    let apiResponseText = data.candidates[0].content.parts[0].text.replace(/\*\*(.*?)\*\*/g, "$1").trim();
+
+    // Detect and format code blocks (triple backticks)
+    apiResponseText = apiResponseText.replace(/```([\s\S]*?)```/g, function(match, code) {
+      return `<pre><code>${code.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</code></pre>`;
+    });
+
+    // Convert markdown-style numbered lists to HTML ordered lists
+    apiResponseText = apiResponseText.replace(/(?:^|\n)(\d+\. .+(?:\n\d+\. .+)*)/g, function(match, list) {
+      const items = list.split(/\n/).map(line => line.replace(/^\d+\. /, '').trim());
+      return '<ol>' + items.map(item => `<li>${item}</li>`).join('') + '</ol>';
+    });
+
+    // Convert markdown-style bullets to HTML unordered lists
+    apiResponseText = apiResponseText.replace(/(?:^|\n)([-*] .+(?:\n[-*] .+)*)/g, function(match, list) {
+      const items = list.split(/\n/).map(line => line.replace(/^[-*] /, '').trim());
+      return '<ul>' + items.map(item => `<li>${item}</li>`).join('') + '</ul>';
+    });
+
+    // Convert remaining line breaks to <br> (except inside <pre> or <ul>/<ol>)
+    apiResponseText = apiResponseText.replace(/([^>])\n/g, '$1<br>');
+
+    messageElement.innerHTML = apiResponseText;
 
     // Add bot response to chat history
     chatHistory.push({
@@ -130,7 +151,7 @@ const handleOutgoingMessage = (e) => {
     chatBody.appendChild(incomingMessageDiv);
     chatBody.scrollTo({ top: chatBody.scrollHeight, behavior: "smooth" });
     generateBotResponse(incomingMessageDiv);
-  }, 600);
+  }, 0);
 };
 
 // Adjust input field height dynamically
@@ -180,3 +201,49 @@ sendMessage.addEventListener("click", (e) => handleOutgoingMessage(e));
 document.querySelector("#file-upload").addEventListener("click", () => fileInput.click());
 closeChatbot.addEventListener("click", () => document.body.classList.remove("show-chatbot"));
 chatbotToggler.addEventListener("click", () => document.body.classList.toggle("show-chatbot"));
+
+document.addEventListener('DOMContentLoaded', function() {
+  // --- Chat History Panel Logic ---
+  const historyBtn = document.getElementById('history-btn');
+  const historyPanel = document.getElementById('chat-history-panel');
+  const closeHistoryBtn = document.getElementById('close-history');
+  const historyList = document.getElementById('history-list');
+
+  function renderHistoryPanel() {
+    const saved = localStorage.getItem('chat_history');
+    historyList.innerHTML = '';
+    if (!saved) {
+      historyList.innerHTML = '<div style="color:#888;">No history found.</div>';
+      return;
+    }
+    try {
+      const history = JSON.parse(saved);
+      history.forEach(msg => {
+        const div = document.createElement('div');
+        div.className = 'history-msg ' + (msg.type === 'user' ? 'user' : 'bot');
+        div.innerText = msg.text;
+        if (msg.attachment) {
+          const img = document.createElement('img');
+          img.src = msg.attachment;
+          img.className = 'attachment';
+          img.style.maxWidth = '100%';
+          img.style.marginTop = '6px';
+          div.appendChild(img);
+        }
+        historyList.appendChild(div);
+      });
+    } catch {
+      historyList.innerHTML = '<div style="color:#888;">No history found.</div>';
+    }
+  }
+
+  if (historyBtn && historyPanel && closeHistoryBtn && historyList) {
+    historyBtn.addEventListener('click', () => {
+      renderHistoryPanel();
+      historyPanel.style.display = 'flex';
+    });
+    closeHistoryBtn.addEventListener('click', () => {
+      historyPanel.style.display = 'none';
+    });
+  }
+});
